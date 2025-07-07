@@ -19,6 +19,8 @@
 <h2>查詢商品價格</h2>
 <label>商品名稱關鍵字：<input type="text" id="searchProduct"></label>
 <button id="searchBtn">查詢</button>
+<h2>價格趨勢圖</h2>
+<canvas id="priceChart" width="600" height="300"></canvas>
 
 <table border="1" id="resultTable" style="margin-top: 1em;">
   <thead>
@@ -32,6 +34,150 @@
   </thead>
   <tbody></tbody>
 </table>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+  const form = document.getElementById('priceForm');
+  const addMessage = document.getElementById('addMessage');
+  const resultTableBody = document.querySelector('#resultTable tbody');
+  const searchProduct = document.getElementById('searchProduct');
+  const searchBtn = document.getElementById('searchBtn');
+
+  let chart = null; // Chart.js 圖表物件
+
+  // 新增商品價格
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = {
+      date: document.getElementById('date').value,
+      product_name: document.getElementById('product_name').value.trim(),
+      price: parseFloat(document.getElementById('price').value),
+    };
+
+    try {
+      const res = await fetch('/api/price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+
+      const json = await res.json();
+      if (res.ok) {
+        addMessage.textContent = '新增成功！';
+        form.reset();
+        loadPrices();  // 更新列表與圖表
+      } else {
+        addMessage.textContent = '錯誤: ' + json.error;
+      }
+    } catch (err) {
+      addMessage.textContent = '無法連線到伺服器';
+    }
+  });
+
+  // 查詢商品價格
+  async function loadPrices() {
+    let url = '/api/prices';
+    const keyword = searchProduct.value.trim();
+    if (keyword) {
+      url += '?product_name=' + encodeURIComponent(keyword);
+    }
+
+    try {
+      const res = await fetch(url);
+      const prices = await res.json();
+
+      // 更新表格
+      resultTableBody.innerHTML = '';
+      prices.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${item.id}</td>
+          <td>${item.date}</td>
+          <td>${item.product_name}</td>
+          <td>${item.price}</td>
+          <td><button data-id="${item.id}" class="deleteBtn">刪除</button></td>
+        `;
+        resultTableBody.appendChild(tr);
+      });
+
+      // 更新趨勢圖
+      drawChart(prices);
+
+    } catch (err) {
+      console.error('讀取資料失敗', err);
+    }
+  }
+
+  searchBtn.addEventListener('click', loadPrices);
+
+  // 使用事件代理監聽刪除按鈕
+  resultTableBody.addEventListener('click', async (e) => {
+    if (e.target.classList.contains('deleteBtn')) {
+      const id = e.target.getAttribute('data-id');
+      if (confirm('確定要刪除此筆資料嗎？')) {
+        try {
+          const res = await fetch(`/api/price/${id}`, { method: 'DELETE' });
+          const json = await res.json();
+          if (res.ok) {
+            alert('刪除成功');
+            loadPrices();
+          } else {
+            alert('刪除失敗：' + json.error);
+          }
+        } catch (err) {
+          alert('無法連線到伺服器');
+        }
+      }
+    }
+  });
+
+  // 新增：畫趨勢圖
+  function drawChart(data) {
+    // 排序日期（由小到大）
+    const sorted = data.slice().sort((a, b) => a.date.localeCompare(b.date));
+
+    const labels = sorted.map(item => item.date);
+    const prices = sorted.map(item => item.price);
+
+    const ctx = document.getElementById('priceChart').getContext('2d');
+
+    if (chart) {
+      chart.destroy(); // 如果圖已存在，先銷毀再畫
+    }
+
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: '價格趨勢',
+          data: prices,
+          borderColor: 'blue',
+          backgroundColor: 'rgba(0,0,255,0.1)',
+          tension: 0.3,
+          pointRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: true }
+        },
+        scales: {
+          y: {
+            title: { display: true, text: '價格' }
+          },
+          x: {
+            title: { display: true, text: '日期' }
+          }
+        }
+      }
+    });
+  }
+
+  // 頁面初始載入資料
+  loadPrices();
+</script>
 
 <script>
   const form = document.getElementById('priceForm');
